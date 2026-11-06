@@ -8,11 +8,16 @@
  */
 import type { TrajectoryCell, TrajectoryCellDetail, TrajectorySnapshot } from './shared-types.ts'
 
-interface SessionLike {
+/**
+ * Everything the projection needs, decoupled from `Session`. DSH 0.2.1 removed
+ * `Session.events`: a live session exposes `snapshotEvents()` and `surface.nodes`,
+ * while a replayed session only has the events restored from its persisted log.
+ */
+export interface TrajectorySource {
   id: string
-  seq: number
-  events: Array<Record<string, any>>
-  surface?: { nodes?: number[] }
+  lastSeq: number
+  events: readonly Record<string, any>[]
+  surfaceNodes?: readonly number[]
 }
 
 interface SurfaceFacts {
@@ -260,14 +265,14 @@ function cellFor(event: Record<string, any>): TrajectoryCell | undefined {
   }
 }
 
-export function buildTrajectory(session: SessionLike): TrajectorySnapshot {
+export function buildTrajectory(source: TrajectorySource): TrajectorySnapshot {
   const cells: TrajectoryCell[] = []
   const replacedBy = new Map<number, number[]>()
   const replacementOf = new Map<number, number[]>()
   const assistantMessages: Array<{ seq: number; usage?: Record<string, any> }> = []
   const callNames = new Map<string, string>()
 
-  for (const event of session.events) {
+  for (const event of source.events) {
     if (event.type === 'tool/call') {
       const data = (event.data ?? {}) as Record<string, any>
       if (typeof data.callId === 'string' && typeof data.name === 'string') {
@@ -276,7 +281,7 @@ export function buildTrajectory(session: SessionLike): TrajectorySnapshot {
     }
   }
 
-  for (const event of session.events) {
+  for (const event of source.events) {
     const facts = event as SurfaceFacts
     if (facts.surfaceOp !== undefined && typeof facts.surfaceOp === 'object' && facts.surfaceOp.op === 'replace') {
       const sources = facts.sourceEventSeqs ?? []
@@ -295,7 +300,7 @@ export function buildTrajectory(session: SessionLike): TrajectorySnapshot {
     cells.push(cell)
   }
 
-  const surfaceNodes = new Set(session.surface?.nodes ?? [])
+  const surfaceNodes = new Set(source.surfaceNodes ?? [])
   const previousUsageCount = new Map<string, number>()
   for (const cell of cells) {
     cell.replacedBy = replacedBy.get(cell.seq) ?? []
@@ -337,9 +342,11 @@ export function buildTrajectory(session: SessionLike): TrajectorySnapshot {
   }
 
   return {
-    sessionId: session.id,
-    lastSeq: Number(session.seq ?? 0) - 1,
-    eventCount: session.events.length,
+    sessionId: source.id,
+    lastSeq: source.lastSeq,
+    eventCount: source.events.length,
     cells,
   }
 }
+
+

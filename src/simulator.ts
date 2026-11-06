@@ -110,7 +110,7 @@ export async function injectSimulatedMessage(
       if (content === '') throw new Error('user message content cannot be empty')
       const userMessage = createUserMessage({
         content: [{ type: 'text', text: content }],
-        source: { kind: 'plugin', plugin: 'context-console' },
+        source: { kind: 'user' },
       })
       const event = session.append('user/message', userMessage, { surfaceOp: 'append' })
       const flushed = await flush(ctx, session)

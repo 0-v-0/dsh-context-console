@@ -21,7 +21,6 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
@@ -342,7 +341,7 @@ export function apply(ctx: Context): void {
   const store = new DraftStore(dataRoot)
   const records = new ContextRecordStore(dataRoot)
 
-  const handler: ConnectionRpcHandler = async (endpoint, payload) => {
+  const handler = async (endpoint: string, payload: unknown) => {
     try {
       const value = await dispatch(ctx, store, records, endpoint, payload)
       return { ok: true, value }

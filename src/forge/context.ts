@@ -20,7 +20,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   createAssistantMessage, createUserMessage, freezeMessage,
 } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource, TokenUsage, ToolResultMessage } from '@deepseek-ai/dsh-llm'
+import type { AssistantMessage, ContentBlock, MessageSource, TokenUsage, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
@@ -172,7 +172,7 @@ function cardFor(event: SessionEvent): ContextCard | undefined {
       const data = event.data as {
         turn: number
         step: number
-        message: { content: ContentBlock[]; source: { provider: string; model: string } }
+        message: AssistantMessage
         usage?: TokenUsage
       }
       const text = joinTextBlocks(data.message.content, 'text')
@@ -231,14 +231,10 @@ function cardFor(event: SessionEvent): ContextCard | undefined {
       const data = event.data as {
         turn: number
         step: number
-        message: {
-          content: [{ type: 'tool-result'; content: ContentBlock[]; isError?: boolean }]
-          source: { callId: string }
-        }
+        message: ToolResultMessage
         error?: { name: string; code: string }
       }
-      const block = data.message.content[0]
-      const resultBlocks = block !== undefined && block.type === 'tool-result' ? block.content : []
+      const resultBlocks = data.message.content
       const text = joinTextBlocks(resultBlocks, 'text')
       return {
         key: `${event.type}:${event.seq}`,
@@ -250,7 +246,7 @@ function cardFor(event: SessionEvent): ContextCard | undefined {
         step: data.step,
         callId: data.message.source.callId,
         toolResultText: text,
-        isError: block?.isError === true,
+        isError: data.message.isError === true,
         ...(data.error !== undefined ? { toolError: data.error } : {}),
         summary: preview(text) || `result for ${data.message.source.callId}`,
         editable: true,
@@ -633,13 +629,9 @@ export class ContextRecordStore {
         // must all stay byte-identical, so clone the original message instead
         // of minting a new one.
         const originalMessage = data.message
-        const originalBlock = originalMessage.content[0]
         const message = freezeMessage({
           ...originalMessage,
-          content: [{
-            ...originalBlock,
-            content: [{ type: 'text', text: card.toolResultText ?? '' }],
-          }] as typeof originalMessage.content,
+          content: [{ type: 'text', text: card.toolResultText ?? '' }] as readonly ContentBlock[],
         })
         event = session.append('tool/result', {
           turn: data.turn,

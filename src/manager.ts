@@ -49,7 +49,11 @@ export class Manager {
   private mcpDisposers = new Map<string, () => void>()
   private hiddenFilterDispose: (() => void) | undefined
 
-  constructor(private readonly storage: Storage) {}
+  private readonly storage: Storage
+
+  constructor(storage: Storage) {
+    this.storage = storage
+  }
 
   private manifest(): ReturnType<Storage['loadManifest']> {
     return this.storage.loadManifest()

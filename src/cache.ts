@@ -41,7 +41,11 @@ export class CacheMonitor {
   private readonly states = new Map<string, SessionCacheState>()
   private readonly headers = new Map<string, Record<string, any> | undefined>()
 
-  constructor(private readonly storage: Storage) {}
+  private readonly storage: Storage
+
+  constructor(storage: Storage) {
+    this.storage = storage
+  }
 
   onSessionEvent(sessionId: string, event: Record<string, any>): void {
     const state = this.states.get(sessionId) ?? {

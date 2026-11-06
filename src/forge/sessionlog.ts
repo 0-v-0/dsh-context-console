@@ -4,7 +4,15 @@ import {
   interruptedTurnClosers, Session, SessionId,
 } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
+import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
+
+/**
+ * V3→V4 migration requires explicit historical child facts. Context Console
+ * repairs one parent session log at a time and does not retain subagent child
+ * evidence, so bind an empty child set: the migration edge proceeds for a
+ * parent without children and rejects only when real child facts are missing.
+ */
+const sessionFormatCatalog = createSessionFormatCatalogWithChildren([])
 import type {
   AssistantMessage, ContentBlock, TokenUsage, ToolResultMessage, UserMessage,
 } from '@deepseek-ai/dsh-llm'
@@ -322,8 +330,7 @@ function entryFor(event: SessionEvent): RecognizedEntry | undefined {
         message: ToolResultMessage
         error?: { name: string; code: string }
       }
-      const block = data.message.content[0]
-      const resultBlocks = block !== undefined && block.type === 'tool-result' ? block.content : []
+      const resultBlocks = data.message.content
       return {
         seq: event.seq,
         time: event.time,
@@ -331,15 +338,45 @@ function entryFor(event: SessionEvent): RecognizedEntry | undefined {
         turn: data.turn,
         step: data.step,
         callId: data.message.source.callId,
-        isError: data.message.content[0]?.type === 'tool-result'
-          ? data.message.content[0].isError === true
-          : undefined,
+        isError: data.message.isError === true ? true : undefined,
         text: joinTextBlocks(resultBlocks, 'text'),
       }
     }
     default:
       return undefined
   }
+}
+
+/**
+ * Restore the logical event list of one persisted session log, without repair
+ * and without synthetic closers. Used for read-only replays of sessions that
+ * are not live in this Host process (an opened historical session).
+ */
+export function readSessionLogEvents(bytes: Buffer): SessionEvent[] {
+  const decoded = decodeLogBytes(bytes)
+  const lines = decoded.text.split(/\r?\n/)
+  let header: SessionLogHeader | null = null
+  let startIndex = 0
+  const first = lines[0]?.trim() ?? ''
+  if (first !== '') {
+    try {
+      const parsed: unknown = JSON.parse(first)
+      if (typeof parsed === 'object' && parsed !== null) {
+        const candidate = parsed as { type?: unknown; version?: unknown; id?: unknown }
+        // Persisted logs mark the header with `type: 'session'`; accept a
+        // version+id record as well so a log written without the marker replays.
+        const marked = candidate.type === 'session'
+        const shaped = typeof candidate.version === 'number' && typeof candidate.id === 'string'
+        if (marked || shaped) {
+          header = parsed as SessionLogHeader
+          startIndex = 1
+        }
+      }
+    } catch {
+      // Not a header record; the row loop reports it as an issue.
+    }
+  }
+  return restoreRows(lines, startIndex, header).events
 }
 
 /**

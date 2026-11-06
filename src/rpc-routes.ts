@@ -1,6 +1,5 @@
 /** Register read/write JSON endpoints on Connection's shared authenticated API. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 
 function failure(rpcId: string, message: string): Response {
   return Response.json({
@@ -16,10 +15,10 @@ function failure(rpcId: string, message: string): Response {
  * browser transport is present and do not compete for its single interceptor.
  */
 export function registerRpcRoutes(
-  ctx: Context,
+  ctx: Context & { connection: { fetch: { register(route: any): () => Promise<void> } } },
   prefix: string,
   endpoints: readonly string[],
-  handler: ConnectionRpcHandler,
+  handler: (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>,
 ): void {
   for (const endpoint of endpoints) {
     const method = `${prefix}/${endpoint}`
@@ -27,7 +26,7 @@ export function registerRpcRoutes(
       path: `/api/${method}`,
       methods: ['POST'],
       requestBody: 'buffered',
-      fetch: async (request) => {
+      fetch: async (request: Request) => {
         let body: unknown
         try {
           body = await request.json()

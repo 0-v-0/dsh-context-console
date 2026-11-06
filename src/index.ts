@@ -14,13 +14,13 @@
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 // Type-only import to merge the dsh-session event vocabulary onto Context.
 import type {} from '@deepseek-ai/dsh-session'
 import { Storage } from './storage.ts'
 import { Manager } from './manager.ts'
 import { CacheMonitor } from './cache.ts'
 import { buildTrajectory } from './trajectory.ts'
+import { readPersistedSessionEvents } from './session-log-file.ts'
 import { editMessage, injectSimulatedMessage } from './simulator.ts'
 import { apply as applyMessageForge } from './forge/index.ts'
 import { registerRpcRoutes } from './rpc-routes.ts'
@@ -130,7 +130,7 @@ export function apply(ctx: AppContext): void {
     ctx.logger?.warn?.(`[dsh-context-console] restore failed: ${String(error)}`)
   })
 
-  const handler: ConnectionRpcHandler = async (endpoint, payload) => {
+  const handler = async (endpoint: string, payload: unknown) => {
     try {
       const value = await dispatch(ctx, storage, manager, cacheMonitor, endpoint, payload)
       return { ok: true, value }
@@ -180,8 +180,25 @@ async function dispatch(
       if (!isRecord(payload)) throw new Error('payload must be an object')
       const sessionId = readString(payload.sessionId, 'sessionId')
       const session = ctx.sessions.get(sessionId)
-      if (session === undefined) throw new Error(`session "${sessionId}" is not live in this process`)
-      return buildTrajectory(session)
+      if (session !== undefined) {
+        const events = session.snapshotEvents() as Array<Record<string, any>>
+        return buildTrajectory({
+          id: sessionId,
+          lastSeq: Number(session.seq ?? events.length) - 1,
+          events,
+          surfaceNodes: session.surface?.nodes,
+        })
+      }
+      // A session opened from the sidebar is replayed, not live: read its log.
+      const persisted = readPersistedSessionEvents(sessionId)
+      if (persisted === undefined) {
+        throw new Error(`session "${sessionId}" is not live in this process and has no persisted log`)
+      }
+      return buildTrajectory({
+        id: sessionId,
+        lastSeq: persisted.events.length - 1,
+        events: persisted.events as unknown as Array<Record<string, any>>,
+      })
     }
     case 'inventory/list': {
       if (!isRecord(payload)) throw new Error('payload must be an object')
